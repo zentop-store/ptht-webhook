@@ -2,67 +2,74 @@ const https = require('https');
 
 // Handler untuk endpoint webhook
 module.exports = async (req, res) => {
-  // Cek metode request
   if (req.method !== 'POST') {
     res.status(405).send('Method Not Allowed');
     return;
   }
 
-  // Ambil data dari body request (yang dikirim dari Lua)
   let body = '';
   req.on('data', chunk => {
     body += chunk.toString();
   });
 
   req.on('end', () => {
-    console.log('Received data:', body); // Logging data yang diterima
+    console.log('Received data:', body); // Log data yang diterima
 
-    // Parsing data dari Lua
+    // Parsing data dari POST request
     const params = new URLSearchParams(body);
     const statusMessage = params.get('status');
 
     if (!statusMessage) {
-      res.status(400).send('Bad Request: Missing status message');
+      res.status(400).json({ status: 'failure', error: 'No status data received' });
       return;
     }
 
-    // URL webhook Discord (pastikan URL ini diatur di environment variables Vercel)
+    // URL webhook Discord (pastikan ini diatur di environment variables Vercel)
     const discordWebhookUrl = process.env.DISCORD_WEBHOOK_URL;
 
-    // Data untuk dikirim ke Discord
+    // Payload untuk dikirim ke Discord
     const payload = JSON.stringify({
-      content: statusMessage
+      content: '',
+      embeds: [
+        {
+          title: 'PTHT BOTHAX PREMIUM By MasD',
+          description: statusMessage,
+          color: 0x00FF00 // Warna hijau
+        }
+      ]
     });
 
-    // Kirim data ke Discord menggunakan webhook
-    const webhookReq = https.request(discordWebhookUrl, {
+    const options = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Content-Length': payload.length
+        'Content-Length': Buffer.byteLength(payload)
       }
-    });
+    };
 
-    let responseData = '';
-    webhookReq.on('response', (response) => {
+    const webhookReq = https.request(discordWebhookUrl, options, (response) => {
+      let responseData = '';
       response.on('data', (chunk) => {
         responseData += chunk;
       });
 
       response.on('end', () => {
-        console.log('Response from Discord:', responseData); // Logging response dari Discord
+        console.log('Response from Discord:', responseData); // Log response dari Discord
+
+        if (response.statusCode === 204) {
+          res.status(200).json({ status: 'success' });
+        } else {
+          res.status(500).json({ status: 'failure', error: 'Failed to send data to Discord' });
+        }
       });
     });
 
     webhookReq.on('error', (e) => {
       console.error('Error sending request:', e);
-      res.status(500).send('Internal Server Error');
+      res.status(500).json({ status: 'failure', error: 'Internal Server Error' });
     });
 
     webhookReq.write(payload);
     webhookReq.end();
-
-    // Berikan respons ke Lua bahwa pesan telah dikirim
-    res.status(200).send('Webhook sent to Discord');
   });
 };
